@@ -1,0 +1,15 @@
+{
+  "name": "膽子真是肥嘟嘟的",
+  "short_name": "肥嘟嘟",
+  "description": "日記,記錄、覺察、與自己的身體好好相處。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#16141C",
+  "theme_color": "#16141C",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
