@@ -1,71 +1,43 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
-type Period = { start: string; end: string }
-type Settings = { cycleLength: number; periodLength: number; theme: 'rose' | 'lavender' | 'mint' }
-type Store = { periods: Period[]; notes: Record<string, string>; settings: Settings }
+type View = 'home' | 'record' | 'calendar' | 'profile'
+type Mood = '☀️' | '🌤️' | '🌙' | '🌧️' | '🫧'
+type Entry = { date: string; mood: Mood; note: string; tags: string[] }
+type Theme = 'rose' | 'lilac' | 'sage'
+type Period = { start: string; length: number }
+type Store = { entries: Entry[]; periods: Period[]; cycleLength: number; theme: Theme }
 
-const key = 'cycle-focus-data-v1'
-const initial: Store = { periods: [], notes: {}, settings: { cycleLength: 28, periodLength: 5, theme: 'rose' } }
-const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-const parse = (value: string) => new Date(`${value}T12:00:00`)
-const addDays = (date: Date, days: number) => { const next = new Date(date); next.setDate(next.getDate() + days); return next }
-const sameDay = (a: string, b: string) => a === b
-const between = (day: string, start: string, end: string) => day >= start && day <= end
-const monthLabel = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'long' })
-
-function load(): Store { try { return { ...initial, ...JSON.parse(localStorage.getItem(key) || '') } } catch { return initial } }
+const key = 'cycle-focus-v2'
+const empty: Store = { entries: [], periods: [], cycleLength: 28, theme: 'rose' }
+const toKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const parseDate = (value: string) => new Date(`${value}T12:00:00`)
+const plusDays = (date: Date, days: number) => { const next = new Date(date); next.setDate(next.getDate() + days); return next }
+const monthName = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'long' })
+function restore(): Store { try { return { ...empty, ...JSON.parse(localStorage.getItem(key) || '') } } catch { return empty } }
 
 export default function App() {
-  const [data, setData] = useState<Store>(load)
-  const [cursor, setCursor] = useState(() => new Date())
-  const [selected, setSelected] = useState(iso(new Date()))
-  const [panel, setPanel] = useState<'record' | 'settings' | 'backup' | null>(null)
-
-  useEffect(() => localStorage.setItem(key, JSON.stringify(data)), [data])
-  const today = iso(new Date())
-  const predicted = useMemo(() => predictions(data.periods, data.settings), [data.periods, data.settings])
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
-  const gridStart = addDays(first, -first.getDay())
-  const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index))
-  const currentPeriod = data.periods.find((p) => between(selected, p.start, p.end))
-  const predictedPeriod = predicted.find((p) => between(selected, p.start, p.end))
-  const dayNote = data.notes[selected] || ''
-
-  const update = (next: Partial<Store>) => setData((value) => ({ ...value, ...next }))
-  const addPeriod = (start: string, length: number) => {
-    const end = iso(addDays(parse(start), Math.max(1, length) - 1))
-    update({ periods: [...data.periods.filter((p) => p.start !== start), { start, end }].sort((a, b) => a.start.localeCompare(b.start)) })
-    setPanel(null)
-  }
-  const exportBackup = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob); const link = document.createElement('a')
-    link.href = url; link.download = `cycle-focus-backup-${today}.json`; link.click(); URL.revokeObjectURL(url)
-  }
-  const importBackup = (file?: File) => {
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => { try { setData(JSON.parse(String(reader.result))); setPanel(null) } catch { alert('備份檔格式不正確') } }
-    reader.readAsText(file)
-  }
-
-  return <main className={`app ${data.settings.theme}`}>
-    <header><div><p className="eyebrow">今天 · {new Intl.DateTimeFormat('zh-TW', { month: 'long', day: 'numeric', weekday: 'short' }).format(new Date())}</p><h1>Cycle Focus</h1></div><button className="avatar" aria-label="設定" onClick={() => setPanel('settings')}>◌</button></header>
-    <section className="insight"><span className="spark">✦</span><div><p>{data.periods.length ? (predicted[0] ? `下次預測生理期：${new Intl.DateTimeFormat('zh-TW', { month: 'numeric', day: 'numeric' }).format(parse(predicted[0].start))}` : '持續記錄，讓預測更貼近你') : '從記錄第一天開始認識你的週期'}</p><small>預測僅供生活規劃參考，非醫療建議。</small></div></section>
-    <section className="calendar-card"><div className="month-nav"><button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>‹</button><h2>{monthLabel.format(cursor)}</h2><button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>›</button></div><div className="weekdays">{['日','一','二','三','四','五','六'].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar">{days.map((date) => { const dateIso = iso(date); const recorded = data.periods.some((p) => between(dateIso, p.start, p.end)); const forecast = predicted.some((p) => between(dateIso, p.start, p.end)); return <button key={dateIso} className={`day ${date.getMonth() !== cursor.getMonth() ? 'muted' : ''} ${sameDay(dateIso, selected) ? 'selected' : ''} ${sameDay(dateIso, today) ? 'today' : ''} ${recorded ? 'recorded' : forecast ? 'forecast' : ''}`} onClick={() => setSelected(dateIso)}><span>{date.getDate()}</span>{data.notes[dateIso] && <i />}</button> })}</div></section>
-    <section className="day-summary"><div><p className="eyebrow">{new Intl.DateTimeFormat('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' }).format(parse(selected))}</p><h2>{currentPeriod ? '已記錄生理期' : predictedPeriod ? '預測生理期' : '留下一筆今日記錄'}</h2><p className="note-preview">{dayNote || (currentPeriod ? '這天屬於你記錄的週期。' : predictedPeriod ? '依你設定的平均週期推估。' : '可記下心情、專注狀態或重要事情。')}</p></div><button className="round-add" onClick={() => setPanel('record')}>＋</button></section>
-    <nav><button className="active">▦<span>月曆</span></button><button onClick={() => setPanel('record')}>＋<span>記錄</span></button><button onClick={() => setPanel('backup')}>⇧<span>備份</span></button></nav>
-    {panel === 'record' && <RecordSheet selected={selected} note={dayNote} defaultLength={data.settings.periodLength} onClose={() => setPanel(null)} onSave={(start, length, note) => { addPeriod(start, length); update({ notes: { ...data.notes, [selected]: note } }) }} />}
-    {panel === 'settings' && <SettingsSheet settings={data.settings} onClose={() => setPanel(null)} onSave={(settings) => { update({ settings }); setPanel(null) }} />}
-    {panel === 'backup' && <BackupSheet onClose={() => setPanel(null)} onExport={exportBackup} onImport={importBackup} />}
-  </main>
+  const [store, setStore] = useState<Store>(restore)
+  const [view, setView] = useState<View>('home')
+  useEffect(() => localStorage.setItem(key, JSON.stringify(store)), [store])
+  return <div className={`shell ${store.theme}`}><main>{view === 'home' && <Home store={store} onNavigate={setView} />}{view === 'record' && <Record store={store} setStore={setStore} />}{view === 'calendar' && <Calendar store={store} setStore={setStore} />}{view === 'profile' && <Profile store={store} setStore={setStore} />}</main><BottomNav view={view} onChange={setView} /></div>
 }
 
-function predictions(periods: Period[], settings: Settings): Period[] {
-  const last = periods.length ? periods[periods.length - 1] : undefined; if (!last) return []
-  return Array.from({ length: 4 }, (_, index) => { const start = iso(addDays(parse(last.start), settings.cycleLength * (index + 1))); return { start, end: iso(addDays(parse(start), settings.periodLength - 1)) } })
+function Home({ store, onNavigate }: { store: Store; onNavigate: (view: View) => void }) {
+  const today = toKey(new Date()); const todayEntry = store.entries.find((entry) => entry.date === today); const latest = store.periods.length ? store.periods[store.periods.length - 1] : undefined; const nextPeriod = latest ? plusDays(parseDate(latest.start), store.cycleLength) : undefined
+  return <section className="page home"><header className="topbar"><div><p className="kicker">YOUR RHYTHM</p><h1>今天，想怎麼照顧自己？</h1></div><button className="icon-button" onClick={() => onNavigate('profile')}>◌</button></header><article className="hero-card"><p className="eyebrow">{new Intl.DateTimeFormat('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</p><div className="hero-row"><span>{todayEntry?.mood ?? '✦'}</span><div><h2>{todayEntry ? '你已留下今天的節奏' : '留一分鐘給自己'}</h2><p>{todayEntry?.note || '記下情緒、身體感受，或今天最想完成的一件事。'}</p></div></div><button className="primary" onClick={() => onNavigate('record')}>{todayEntry ? '查看／更新今日紀錄' : '開始紀錄'}</button></article><div className="section-head"><h2>週期節奏</h2><button onClick={() => onNavigate('calendar')}>查看月曆 →</button></div><article className="cycle-card"><div className="cycle-orbit"><span>◌</span></div><div><p className="eyebrow">{nextPeriod ? '下一次預測開始日' : '尚未建立週期紀錄'}</p><h3>{nextPeriod ? new Intl.DateTimeFormat('zh-TW', { month: 'long', day: 'numeric' }).format(nextPeriod) : '從第一次紀錄開始'}</h3><p>{nextPeriod ? `依 ${store.cycleLength} 天週期推算，作為生活規劃參考。` : '在月曆標記生理期，就能開始預測。'}</p></div></article><div className="section-head"><h2>今天的小目標</h2><span className="muted">慢慢來也很好</span></div><article className="focus-card"><span className="check">✓</span><div><strong>只完成最重要的一件事</strong><p>把精力留給真正重要的地方。</p></div></article></section>
 }
-function Sheet({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) { return <div className="overlay" onMouseDown={onClose}><section className="sheet" onMouseDown={(event) => event.stopPropagation()}><div className="handle" /><div className="sheet-head"><h2>{title}</h2><button onClick={onClose}>×</button></div>{children}</section></div> }
-function RecordSheet({ selected, note, defaultLength, onClose, onSave }: { selected: string; note: string; defaultLength: number; onClose: () => void; onSave: (start: string, length: number, note: string) => void }) { const [start, setStart] = useState(selected); const [length, setLength] = useState(defaultLength); const [text, setText] = useState(note); return <Sheet title="記錄週期與今天" onClose={onClose}><label>生理期開始日<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label><label>預計天數<input type="number" min="1" max="14" value={length} onChange={(e) => setLength(Number(e.target.value))} /></label><label>今日筆記<textarea placeholder="心情、能量、專注事項…" value={text} onChange={(e) => setText(e.target.value)} /></label><button className="primary" onClick={() => onSave(start, length, text)}>儲存記錄</button></Sheet> }
-function SettingsSheet({ settings, onClose, onSave }: { settings: Settings; onClose: () => void; onSave: (settings: Settings) => void }) { const [value, setValue] = useState(settings); return <Sheet title="偏好設定" onClose={onClose}><label>平均週期長度<input type="number" min="20" max="45" value={value.cycleLength} onChange={(e) => setValue({ ...value, cycleLength: Number(e.target.value) })} /></label><label>平均生理期天數<input type="number" min="1" max="14" value={value.periodLength} onChange={(e) => setValue({ ...value, periodLength: Number(e.target.value) })} /></label><div className="theme-choice"><span>主題色系</span><div>{(['rose','lavender','mint'] as const).map((theme) => <button key={theme} className={`${theme} ${value.theme === theme ? 'chosen' : ''}`} onClick={() => setValue({ ...value, theme })} aria-label={theme} />)}</div></div><button className="primary" onClick={() => onSave(value)}>儲存設定</button></Sheet> }
-function BackupSheet({ onClose, onExport, onImport }: { onClose: () => void; onExport: () => void; onImport: (file?: File) => void }) { return <Sheet title="資料備份" onClose={onClose}><p className="backup-copy">目前資料安全儲存在這台裝置。下載備份檔後，可放到 iCloud Drive、Google Drive 或其他雲端空間。</p><button className="primary" onClick={onExport}>下載備份檔</button><label className="file-label">還原備份<input type="file" accept="application/json" onChange={(e) => onImport(e.target.files?.[0])} /></label><p className="muted-copy">要自動跨裝置同步，下一步可串接 Supabase 或 Firebase。</p></Sheet> }
+
+function Record({ store, setStore }: { store: Store; setStore: Dispatch<SetStateAction<Store>> }) {
+  const today = toKey(new Date()); const existing = store.entries.find((entry) => entry.date === today); const [mood, setMood] = useState<Mood>(existing?.mood ?? '☀️'); const [note, setNote] = useState(existing?.note ?? ''); const [tags, setTags] = useState<string[]>(existing?.tags ?? []); const choices: Mood[] = ['☀️', '🌤️', '🌙', '🌧️', '🫧']; const tagList = ['專注', '平靜', '疲憊', '有靈感', '想休息']
+  const save = () => { const entry = { date: today, mood, note: note.trim(), tags }; setStore((current) => ({ ...current, entries: [...current.entries.filter((item) => item.date !== today), entry] })) }
+  return <section className="page"><header className="simple-head"><p className="kicker">DAILY RECORD</p><h1>今天的你，還好嗎？</h1><p>不需要完美，誠實就好。</p></header><article className="form-card"><label>此刻的感覺</label><div className="mood-grid">{choices.map((choice) => <button key={choice} className={mood === choice ? 'picked' : ''} onClick={() => setMood(choice)}>{choice}</button>)}</div><label>想留下什麼？</label><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="一個念頭、一段感受、或今天發生的事…" /><label>今天的關鍵字</label><div className="tag-list">{tagList.map((tag) => <button key={tag} className={tags.includes(tag) ? 'tag active' : 'tag'} onClick={() => setTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])}>{tag}</button>)}</div><button className="primary" onClick={save}>儲存今日紀錄</button></article></section>
+}
+
+function Calendar({ store, setStore }: { store: Store; setStore: Dispatch<SetStateAction<Store>> }) {
+  const [cursor, setCursor] = useState(new Date()); const [selected, setSelected] = useState(toKey(new Date())); const [marking, setMarking] = useState(false); const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1); const gridStart = plusDays(start, -start.getDay()); const days = Array.from({ length: 42 }, (_, index) => plusDays(gridStart, index)); const today = toKey(new Date()); const last = store.periods.length ? store.periods[store.periods.length - 1] : undefined
+  const predicted = useMemo(() => !last ? [] : Array.from({ length: 4 }, (_, index) => toKey(plusDays(parseDate(last.start), store.cycleLength * (index + 1)))), [last, store.cycleLength]); const periodFor = (date: string) => store.periods.some((period) => date >= period.start && date <= toKey(plusDays(parseDate(period.start), period.length - 1))); const recordPeriod = () => { setStore((current) => ({ ...current, periods: [...current.periods.filter((period) => period.start !== selected), { start: selected, length: 5 }].sort((a, b) => a.start.localeCompare(b.start)) })); setMarking(false) }
+  return <section className="page"><header className="simple-head"><p className="kicker">CYCLE CALENDAR</p><h1>你的身體有自己的節奏</h1><p>預測是協助規劃的提示，不是醫療診斷。</p></header><article className="calendar-card"><div className="month-switch"><button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>‹</button><h2>{monthName.format(cursor)}</h2><button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>›</button></div><div className="weekdays">{['日','一','二','三','四','五','六'].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{days.map((day) => { const value = toKey(day); const actual = periodFor(value); const forecast = predicted.includes(value); return <button key={value} onClick={() => setSelected(value)} className={`calendar-day ${day.getMonth() !== cursor.getMonth() ? 'outside' : ''} ${selected === value ? 'selected' : ''} ${actual ? 'period' : forecast ? 'forecast' : ''} ${today === value ? 'today' : ''}`}>{day.getDate()}</button> })}</div></article><div className="legend"><span><i className="legend-period" />已記錄</span><span><i className="legend-forecast" />預測</span></div><article className="selected-day"><div><p className="eyebrow">{new Intl.DateTimeFormat('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' }).format(parseDate(selected))}</p><h2>{periodFor(selected) ? '已記錄生理期' : '標記這一天'}</h2></div><button className="outline" onClick={() => setMarking(true)}>記錄開始日</button></article>{marking && <div className="sheet-backdrop" onClick={() => setMarking(false)}><div className="sheet" onClick={(event) => event.stopPropagation()}><div className="handle" /><h2>記錄生理期</h2><p>{selected} 將設為生理期的開始日，預設 5 天。</p><button className="primary" onClick={recordPeriod}>確認記錄</button></div></div>}</section>
+}
+
+function Profile({ store, setStore }: { store: Store; setStore: Dispatch<SetStateAction<Store>> }) { const palettes: Theme[] = ['rose', 'lilac', 'sage']; return <section className="page"><header className="simple-head"><p className="kicker">YOUR SPACE</p><h1>你的專屬設定</h1><p>資料預設只留在你的裝置。</p></header><article className="profile-card"><div className="profile-avatar">✦</div><div><h2>尚未登入</h2><p>登入後即可將資料安全同步到你的帳號。</p></div><button className="outline disabled">GitHub 登入 · 即將啟用</button></article><article className="settings-card"><h2>介面主題</h2><div className="palette-row">{palettes.map((palette) => <button key={palette} className={`palette ${palette} ${store.theme === palette ? 'selected' : ''}`} onClick={() => setStore((current) => ({ ...current, theme: palette }))}><i /><span>{palette === 'rose' ? '暖玫瑰' : palette === 'lilac' ? '靜紫' : '鼠尾草'}</span></button>)}</div><label>平均週期長度 <output>{store.cycleLength} 天</output><input type="range" min="20" max="45" value={store.cycleLength} onChange={(event) => setStore((current) => ({ ...current, cycleLength: Number(event.target.value) }))} /></label></article><article className="settings-card muted-settings"><h2>資料與隱私</h2><p>目前儲存在這台裝置。雲端登入與同步會在資料結構穩定後啟用。</p></article></section> }
+function BottomNav({ view, onChange }: { view: View; onChange: (view: View) => void }) { const items: { id: View; icon: string; label: string }[] = [{ id: 'home', icon: '⌂', label: '首頁' }, { id: 'record', icon: '＋', label: '紀錄' }, { id: 'calendar', icon: '▦', label: '月曆' }, { id: 'profile', icon: '◌', label: '設定' }]; return <nav className="bottom-nav">{items.map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => onChange(item.id)}><b>{item.icon}</b><span>{item.label}</span></button>)}</nav> }
